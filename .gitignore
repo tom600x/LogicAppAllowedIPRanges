@@ -1,0 +1,52 @@
+# Sensitive auth output
+sp-auth.json
+
+# Local environment files
+.env
+.env.*
+
+# OS generated
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Editor / IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# Logs & temp
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# Test / coverage artifacts
+TestResults/
+*.trx
+*.coverage*
+coverage/
+
+# PowerShell transient JSON captures
+workflow_raw.json
+logicapp_wf_*.json
+logicapp_std_*.json
+
+# Azure DevOps task helper files
+*.taskkey
+
+# Node / Python (future-proof if added later)
+node_modules/
+package-lock.json
+pip-wheel-metadata/
+__pycache__/
+*.pyc
+
+# Archive bundles
+*.zip
+*.tar
+*.tar.gz
+
+# Other
+*.retry

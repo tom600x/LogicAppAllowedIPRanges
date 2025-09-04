@@ -1,0 +1,46 @@
+trigger: none
+pr: none
+
+schedules:
+- cron: '0 3 * * *'         # nightly at 03:00 UTC
+  displayName: Nightly - 03:00 UTC
+  branches:
+    include:
+      - main
+  always: true
+
+variables:
+  - name: azureSubscription
+    value: 'MyAzureServiceConnection'   # replace with your Azure service connection name in DevOps
+  - name: logicAppResourceId
+    value: '/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Web/sites/<logicAppName>'
+  - name: armUrl
+    value: 'https://azureipranges.azurewebsites.net/getPrefixes/AzureGovernment/LogicApps.USGovTexas'
+  - name: apiVersion
+    value: '2021-02-01'
+  - name: includeContentAccess
+    value: 'false'   # set to 'true' to also update contents access control (Consumption workflows)
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+- checkout: self
+  clean: true
+
+- task: AzureCLI@2
+  displayName: 'Update Logic App access restrictions (Standard or Consumption)'
+  inputs:
+    azureSubscription: '$(azureSubscription)'
+    scriptType: 'pscore'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      $ErrorActionPreference = 'Stop'
+      Write-Host "Running access update script (idempotent)"
+      $include = "$(includeContentAccess)"
+  $switch = ''
+  if ($include -and $include.ToLower() -eq 'true') { $switch = '-IncludeContentAccess' }
+      # Execute (Consumption uses full PUT; Standard uses PUT web config)
+      ./scripts/patch-logicapp-access.ps1 -LogicAppResourceId "$(logicAppResourceId)" -ArmUrl "$(armUrl)" -ApiVersion "$(apiVersion)" $switch
+  env:
+    AZURE_HTTP_USER_AGENT: 'azure-pipelines-nightly-patch'
