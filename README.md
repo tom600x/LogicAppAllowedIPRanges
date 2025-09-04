@@ -73,3 +73,93 @@ Notes
 - Set `includeContentAccess: true` in pipeline variables to manage both triggers and contents.
 
 If desired, the script can be extended to emit an ARM template instead of performing the REST call.
+
+## Running Locally
+
+### Prerequisites
+- PowerShell 7+ (`pwsh`) – Windows 10+ usually fine once PowerShell 7 is installed.
+- Azure CLI 2.50+ (recommend latest). Verify with: `az version`.
+- Network access to: `https://azureipranges.azurewebsites.net/` and Azure management endpoint.
+- Appropriate RBAC on the target resource:
+   - Standard: `Microsoft.Web/sites/config/Write` (e.g. Site Contributor / Contributor on the site or resource group).
+   - Consumption: `Microsoft.Logic/workflows/Write` (Logic App Contributor / Contributor scope on RG or workflow).
+
+### Authentication Options
+1. Interactive user (Azure commercial):
+    ```powershell
+    az login
+    az account set --subscription <SUBSCRIPTION_ID>
+    ```
+2. Interactive user (Azure Government) – if ever targeting Gov resources:
+    ```powershell
+    az cloud set --name AzureUSGovernment
+    az login
+    az account set --subscription <SUBSCRIPTION_ID>
+    ```
+3. Service principal:
+    ```powershell
+    az login --service-principal -u <APP_ID> -p <CLIENT_SECRET> --tenant <TENANT_ID>
+    az account set --subscription <SUBSCRIPTION_ID>
+    ```
+
+### Minimal Permissions
+You can avoid full Contributor by assigning a custom role including only:
+```
+Microsoft.Web/sites/config/Read
+Microsoft.Web/sites/config/Write
+Microsoft.Logic/workflows/Read
+Microsoft.Logic/workflows/Write
+```
+(Plus `Microsoft.Resources/subscriptions/resourceGroups/read`).
+
+### Sample Commands
+Preview (WhatIf) for a Consumption workflow (triggers + contents):
+```powershell
+pwsh ./scripts/patch-logicapp-access.ps1 `
+   -LogicAppResourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Logic/workflows/TriggerTest" `
+   -IncludeContentAccess -WhatIf
+```
+
+Apply (idempotent):
+```powershell
+pwsh ./scripts/patch-logicapp-access.ps1 -LogicAppResourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Logic/workflows/TriggerTest" -IncludeContentAccess
+```
+
+Standard (App Service / Logic App Standard plan) example:
+```powershell
+pwsh ./scripts/patch-logicapp-access.ps1 -LogicAppResourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Web/sites/<siteName>" -ApiVersion 2021-02-01
+```
+
+Content-only legacy selection (still triggers always processed unless you omit IncludeContentAccess):
+```powershell
+pwsh ./scripts/patch-logicapp-access.ps1 -LogicAppResourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Logic/workflows/TriggerTest" -Target Content
+```
+
+Generate body without fetching existing (placeholder ID scenarios):
+```powershell
+pwsh ./scripts/patch-logicapp-access.ps1 -LogicAppResourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Logic/workflows/Placeholder" -WhatIf -SkipFetchExisting -IncludeContentAccess
+```
+
+Override prefixes source URL:
+```powershell
+pwsh ./scripts/patch-logicapp-access.ps1 -LogicAppResourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Logic/workflows/TriggerTest" -ArmUrl "https://example/custom.json" -WhatIf
+```
+
+### Idempotence Behavior
+If both trigger and (when selected) contents IP lists already match the resolved prefixes (set comparison), the script skips the PUT and prints existing counts.
+
+### Troubleshooting
+- Empty prefix list: run with `-WhatIf -SkipFetchExisting` and inspect output; verify source URL manually.
+- 401 / 403 errors: ensure you logged in to correct subscription and have write permission.
+- Logic App not updating (Consumption): confirm there are no deployment locks and that the workflow is in Enabled state.
+- To view current access control after run:
+   ```powershell
+   az rest --method get --uri "https://management.azure.com/<resourceId>?api-version=2019-05-01" | ConvertFrom-Json | Select -Expand properties | Select -Expand accessControl
+   ```
+
+### Optional Isolation
+Set a custom Azure CLI profile directory if you want to isolate credentials:
+```powershell
+$env:AZURE_CONFIG_DIR = "$HOME/.azure-iprange-updater"
+az login
+```
