@@ -38,9 +38,9 @@ steps:
       $ErrorActionPreference = 'Stop'
       Write-Host "Running access update script (idempotent)"
       $include = "$(includeContentAccess)"
-  $switch = ''
-  if ($include -and $include.ToLower() -eq 'true') { $switch = '-IncludeContentAccess' }
+      $switch = ''
+      if ($include -and $include.ToLower() -eq 'true') { $switch = '-IncludeContentAccess' }
       # Execute (Consumption uses full PUT; Standard uses PUT web config)
-      ./scripts/patch-logicapp-access.ps1 -LogicAppResourceId "$(logicAppResourceId)" -ArmUrl "$(armUrl)" -ApiVersion "$(apiVersion)" $switch
+      ./scripts/patch-logicapp-access.ps1 -LogicAppResourceId "$(logicAppResourceId)" -ArmUrl "$(armUrl)" -ApiVersion "$(apiVersion)" $switch -SkipFetchExisting
   env:
     AZURE_HTTP_USER_AGENT: 'azure-pipelines-nightly-patch'

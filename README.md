@@ -2,6 +2,19 @@ Nightly Logic App IP allowlist updater
 
 This repository contains an Azure DevOps pipeline and a PowerShell script that download Azure Government Logic Apps IP prefixes and patch either:
 
+## 📹 Setup Video
+
+For a complete walkthrough of the setup process, watch the setup video below:
+
+<video width="800" controls>
+  <source src="./Setup Video.mp4" type="video/mp4">
+  Your browser does not support the video tag. You can <a href="./Setup Video.mp4">download the video</a> instead.
+</video>
+
+## Overview
+
+This repository contains an Azure DevOps pipeline and a PowerShell script that download Azure Government Logic Apps IP prefixes and patch either:
+
 1. Logic App Standard (App Service) ipSecurityRestrictions (config/web)
 2. Logic App Consumption workflow accessControl (triggers / contents allowedCallerIpAddresses)
 
