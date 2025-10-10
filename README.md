@@ -4,12 +4,11 @@ This repository contains an Azure DevOps pipeline and a PowerShell script that d
 
 ## 📹 Setup Video
 
-For a complete walkthrough of the setup process, watch the setup video below:
+For a complete walkthrough of the setup process, watch the setup video:
 
-<video width="800" controls>
-  <source src="./Setup Video.mp4" type="video/mp4">
-  Your browser does not support the video tag. You can <a href="./Setup Video.mp4">download the video</a> instead.
-</video>
+**[📥 Download Setup Video (247 MB)](./Setup%20Video.mp4)**
+
+*Note: Click the link above to download the video file, then open it with your preferred media player.*
 
 ## Overview
 
