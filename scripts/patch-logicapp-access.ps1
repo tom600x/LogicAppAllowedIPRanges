@@ -111,8 +111,8 @@ if (-not $prefixes -or $prefixes.Count -eq 0) {
   if ($content) {
     $ipv4Pattern = '(?<!\d)(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}\/(?:[0-9]|[12][0-9]|3[0-2])'
     $ipv6Pattern = '(?:[A-Fa-f0-9]{1,4}:){1,7}[A-Fa-f0-9]{1,4}\/(?:[0-9]|[1-9][0-9]|1[0-1][0-9]|12[0-8])'
-  $ipv4Matches = [System.Text.RegularExpressions.Regex]::Matches($content, $ipv4Pattern)
-  $matchesV6 = [System.Text.RegularExpressions.Regex]::Matches($content, $ipv6Pattern)
+    $ipv4Matches = [System.Text.RegularExpressions.Regex]::Matches($content, $ipv4Pattern)
+    $matchesV6 = [System.Text.RegularExpressions.Regex]::Matches($content, $ipv6Pattern)
     $all = @()
   foreach ($m in $ipv4Matches) { $all += $m.Value }
     foreach ($m in $matchesV6) { $all += $m.Value }
@@ -302,7 +302,8 @@ if ($LogicAppResourceId -like "*/Microsoft.Logic/workflows/*") {
     $cntEqual = $true
     if ($includeContents) { $cntEqual = __setEqual ($existingContents) ($ipObjects.addressRange) }
     if ($trgEqual -and $cntEqual) {
-      Write-Host "No changes detected in accessControl (triggers$([string]::IsNullOrEmpty([string]$includeContents) ? '' : '/contents')); skipping update." -ForegroundColor Yellow
+      $contentsSuffix = if ($includeContents) { '/contents' } else { '' }
+      Write-Host "No changes detected in accessControl (triggers$contentsSuffix); skipping update." -ForegroundColor Yellow
       Write-Host "Verification (skip): triggers=$($existingTriggers.Count) contents=$($existingContents.Count)"
       return
     }
