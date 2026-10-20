@@ -2,7 +2,11 @@ param(
   [Parameter(Mandatory=$true)]
   [string] $LogicAppResourceId,
 
-  [string] $ArmUrl = "https://azureipranges.azurewebsites.net/getPrefixes/AzureGovernment/LogicApps.USGovTexas",
+  [ValidateNotNullOrEmpty()]
+  [string] $ServiceTag = 'LogicApps',
+
+  [ValidateSet('Commercial','Government')]
+  [string] $Cloud = 'Commercial',
 
   [string] $ApiVersion = "2021-02-01",
 
@@ -25,111 +29,46 @@ if (-not $LogicAppResourceId) {
   throw "LogicAppResourceId is required. Example: /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Web/sites/<name> or /providers/Microsoft.Logic/workflows/<workflow>"
 }
 
-# Download prefixes JSON (robust: try several endpoints and fallbacks)
-Write-Host "Downloading prefixes from: $ArmUrl (with fallbacks)"
-# candidate URLs to try (include official ARM download endpoint)
-$candidates = @(
-  "https://azureipranges.azurewebsites.net/downloadARMTemplate/AzureGovernment/LogicApps.USGovTexas",
-  $ArmUrl,
-  "$ArmUrl/arm",
-  "$ArmUrl/arm.json"
-)
-$resp = $null
-$usedUrl = $null
-foreach ($u in $candidates) {
-  Write-Host "Trying: $u"
-  try {
-    # Try Invoke-RestMethod first (best when endpoint returns JSON)
-    $r = Invoke-RestMethod -Uri $u -UseBasicParsing -ErrorAction Stop
-    $resp = $r
-    $usedUrl = $u
-    break
-  } catch {
-    # If that fails, try Invoke-WebRequest and parse the content as JSON
-    try {
-      $r2 = Invoke-WebRequest -Uri $u -UseBasicParsing -ErrorAction Stop
-      $content = $r2.Content
-      try {
-        $resp = $content | ConvertFrom-Json
-        $usedUrl = $u
-        break
-      } catch {
-        # not JSON, continue to next candidate
-        Write-Host "Response from $u is not JSON or couldn't parse as JSON"
-      }
-    } catch {
-      Write-Host ("Failed to download from {0}: {1}" -f $u, $_.Exception.Message)
-    }
-  }
+$downloadPage = 'https://www.microsoft.com/en-us/download/details.aspx?id=56519'
+$filePattern = 'ServiceTags_Public_.*\.json'
+$managementEndpoint = 'https://management.azure.com'
+if ($Cloud -eq 'Government') {
+  $downloadPage = 'https://www.microsoft.com/en-us/download/details.aspx?id=57063'
+  $filePattern = 'ServiceTags_AzureGovernment_.*\.json'
+  $managementEndpoint = 'https://management.usgovcloudapi.net'
+}
+$downloadFolder = Join-Path $PSScriptRoot 'ServiceTags'
+if (-not (Test-Path -LiteralPath $downloadFolder -PathType Container)) {
+  New-Item -Path $downloadFolder -ItemType Directory -ErrorAction Stop | Out-Null
 }
 
-if (-not $resp) {
-  throw "Failed to fetch or parse JSON from any candidate URL. Checked: $($candidates -join ', ')"
+Write-Host "Discovering service tags download from: $downloadPage"
+$page = Invoke-WebRequest -Uri $downloadPage -UseBasicParsing -ErrorAction Stop
+$jsonUrl = $page.Links |
+  Where-Object href -match $filePattern |
+  Select-Object -First 1 -ExpandProperty href
+if (-not $jsonUrl) {
+  throw "No $Cloud service tags JSON download link found on $downloadPage."
 }
-Write-Host "Using prefix source: $usedUrl"
-
-# After successful download and before extracting prefixes, keep raw JSON text if available
-if (-not $content -and $usedUrl) {
-  try { $content = (Invoke-WebRequest -Uri $usedUrl -UseBasicParsing -ErrorAction Stop).Content } catch {}
-}
-
-# Extract prefixes from common shapes (extended to handle ARM template routeTables)
-$prefixes = @()
-if ($resp -is [System.Array]) {
-  $prefixes = $resp
-} elseif ($resp.values) {
-  foreach ($v in $resp.values) {
-    if ($v.properties -and $v.properties.addressPrefixes) { $prefixes += $v.properties.addressPrefixes }
-    elseif ($v.properties -and $v.properties.addressPrefix) { $prefixes += $v.properties.addressPrefix }
-  }
-} elseif ($resp.prefixes) {
-  $prefixes = $resp.prefixes
-} elseif ($resp.resources) {
-  # ARM template style: look for routeTables resources
-  foreach ($rsc in $resp.resources) {
-    if ($rsc.type -like 'Microsoft.Network/routeTables*' -and $rsc.properties -and $rsc.properties.routes) {
-      foreach ($rt in $rsc.properties.routes) {
-        if ($rt.properties -and $rt.properties.addressPrefix) { $prefixes += $rt.properties.addressPrefix }
-      }
-    }
-  }
-} elseif ($resp.properties -and $resp.properties.addressPrefixes) {
-  $prefixes = $resp.properties.addressPrefixes
+$downloadUri = [uri]::new([uri]$downloadPage, $jsonUrl)
+if ($downloadUri.Scheme -ne 'https') {
+  throw "Expected an HTTPS service tags download link, found: $downloadUri"
 }
 
-# Regex fallback if still empty (scan raw content for IPv4/IPv6 CIDR strings)
-if (-not $prefixes -or $prefixes.Count -eq 0) {
-  Write-Host "Structured parsing found no prefixes; attempting regex extraction from raw content..."
-  if (-not $content -and $usedUrl) {
-    try {
-      $raw = Invoke-WebRequest -Uri $usedUrl -UseBasicParsing -ErrorAction Stop
-      $content = $raw.Content
-    } catch {
-      Write-Host "Failed to re-download raw content for regex parsing: $($_.Exception.Message)"
-    }
-  }
-  if ($content) {
-    $ipv4Pattern = '(?<!\d)(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}\/(?:[0-9]|[12][0-9]|3[0-2])'
-    $ipv6Pattern = '(?:[A-Fa-f0-9]{1,4}:){1,7}[A-Fa-f0-9]{1,4}\/(?:[0-9]|[1-9][0-9]|1[0-1][0-9]|12[0-8])'
-    $ipv4Matches = [System.Text.RegularExpressions.Regex]::Matches($content, $ipv4Pattern)
-    $matchesV6 = [System.Text.RegularExpressions.Regex]::Matches($content, $ipv6Pattern)
-    $all = @()
-  foreach ($m in $ipv4Matches) { $all += $m.Value }
-    foreach ($m in $matchesV6) { $all += $m.Value }
-    $prefixes = $all | Select-Object -Unique
-    if ($prefixes.Count -gt 0) {
-      Write-Host "Regex fallback extracted $($prefixes.Count) prefixes"
-    }
-  }
+$outFile = Join-Path $downloadFolder $downloadUri.Segments[-1]
+Invoke-WebRequest -Uri $downloadUri.AbsoluteUri -OutFile $outFile -UseBasicParsing -ErrorAction Stop
+Write-Host "Downloaded $outFile"
+$resp = Get-Content -LiteralPath $outFile -Raw | ConvertFrom-Json -ErrorAction Stop
+$matchingTags = @($resp.values | Where-Object { $_.name -eq $ServiceTag })
+if ($matchingTags.Count -eq 0) {
+  throw "Service tag '$ServiceTag' was not found in $outFile. Specify an exact service tag name from the $Cloud cloud feed."
 }
-
-if (-not $prefixes -or $prefixes.Count -eq 0) {
-  throw "No prefixes found in downloaded content from $usedUrl. Save the file manually and inspect; adjust regex or source URL."
+$prefixes = @($matchingTags | ForEach-Object { $_.properties.addressPrefixes } |
+  Where-Object { $_ } | Select-Object -Unique)
+if ($prefixes.Count -eq 0) {
+  throw "No address prefixes found for service tag '$ServiceTag' in $outFile."
 }
-
-# flatten and unique
-$prefixes = $prefixes | ForEach-Object { $_ } | Where-Object { $_ } | Select-Object -Unique
-Write-Host "Found $($prefixes.Count) prefixes"
+Write-Host "Found $($prefixes.Count) prefixes for service tag '$ServiceTag'"
 
 # Handle Microsoft.Web/sites (App Service) - existing behavior
 if ($LogicAppResourceId -like "*/Microsoft.Web/sites/*") {
@@ -137,7 +76,7 @@ if ($LogicAppResourceId -like "*/Microsoft.Web/sites/*") {
 
   # Build management API uri for config/web
   $uriPath = "$LogicAppResourceId/config/web?api-version=$ApiVersion"
-  $uri = "https://management.azure.com$uriPath"
+  $uri = "$managementEndpoint$uriPath"
   Write-Host "Management URI: $uri"
 
   # Build ipSecurityRestrictions entries
@@ -150,8 +89,8 @@ if ($LogicAppResourceId -like "*/Microsoft.Web/sites/*") {
       ipAddress = "$p"
       action = "Allow"
       priority = $priorityBase + $idx
-      name = "AzureGov_LogicApps_USGovTX_$idx"
-      description = "Auto-updated from $ArmUrl"
+      name = "ServiceTag_${ServiceTag}_$idx"
+      description = "Auto-updated from service tag '$ServiceTag' ($($downloadUri.AbsoluteUri))"
     }
     $ipSecurityRestrictions += $entry
   }
@@ -172,7 +111,7 @@ if ($LogicAppResourceId -like "*/Microsoft.Web/sites/*") {
 
     foreach ($e in $existingEntries) {
       $name = $e.name -as [string]
-      if (-not ($name -and $name -match '^AzureGov_LogicApps_USGovTX_')) {
+      if (-not ($name -and $name -match '^(AzureGov_LogicApps_USGovTX_|ServiceTag_)')) {
         $preserve += $e
       }
     }
@@ -238,7 +177,7 @@ if ($LogicAppResourceId -like "*/Microsoft.Logic/workflows/*") {
   $usedApiVersion = $null
   if (-not $SkipFetchExisting) {
     foreach ($v in $candidateApiVersions) {
-      $uri = 'https://management.azure.com' + $LogicAppResourceId + '?api-version=' + $v
+      $uri = $managementEndpoint + $LogicAppResourceId + '?api-version=' + $v
       Write-Host "Trying URI: $uri"
       try {
         $existing = az rest --method get --uri $uri | ConvertFrom-Json
@@ -252,7 +191,7 @@ if ($LogicAppResourceId -like "*/Microsoft.Logic/workflows/*") {
         Write-Host "Warning: Could not retrieve existing workflow (WhatIf mode). Proceeding with empty baseline due to -WhatIf and potential placeholder resource id." -ForegroundColor Yellow
         $existing = @{ properties = @{} }
         $usedApiVersion = $candidateApiVersions[0]
-        $uri = 'https://management.azure.com' + $LogicAppResourceId + '?api-version=' + $usedApiVersion
+        $uri = $managementEndpoint + $LogicAppResourceId + '?api-version=' + $usedApiVersion
       } else {
         throw "Failed to retrieve existing workflow resource after trying API versions: $($candidateApiVersions -join ', ')"
       }
@@ -261,7 +200,7 @@ if ($LogicAppResourceId -like "*/Microsoft.Logic/workflows/*") {
     Write-Host "SkipFetchExisting specified. Building patch body without existing workflow GET." -ForegroundColor Yellow
     $existing = @{ properties = @{} }
     $usedApiVersion = $candidateApiVersions[0]
-    $uri = 'https://management.azure.com' + $LogicAppResourceId + '?api-version=' + $usedApiVersion
+    $uri = $managementEndpoint + $LogicAppResourceId + '?api-version=' + $usedApiVersion
   }
 
   Write-Host "Using API version: $usedApiVersion"

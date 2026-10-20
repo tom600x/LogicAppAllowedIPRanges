@@ -32,6 +32,7 @@ coverage/
 workflow_raw.json
 logicapp_wf_*.json
 logicapp_std_*.json
+scripts/ServiceTags/
 
 # Azure DevOps task helper files
 *.taskkey

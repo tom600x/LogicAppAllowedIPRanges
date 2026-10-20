@@ -1,6 +1,6 @@
 Nightly Logic App IP allowlist updater
 
-This repository contains an Azure DevOps pipeline and a PowerShell script that download Azure Government Logic Apps IP prefixes and patch either:
+This repository contains an Azure DevOps pipeline and a PowerShell script that download Microsoft Azure Commercial or Government service tag IP prefixes and patch either:
 
 ## 📹 Setup Video
 
@@ -12,7 +12,7 @@ For a complete walkthrough of the setup process, watch the setup video:
 
 ## Overview
 
-This repository contains an Azure DevOps pipeline and a PowerShell script that download Azure Government Logic Apps IP prefixes and patch either:
+This repository contains an Azure DevOps pipeline and a PowerShell script that download Microsoft Azure Commercial or Government service tag IP prefixes and patch either:
 
 1. Logic App Standard (App Service) ipSecurityRestrictions (config/web)
 2. Logic App Consumption workflow accessControl (triggers / contents allowedCallerIpAddresses)
@@ -40,7 +40,8 @@ Quick setup
 3) Configure pipeline variables (in `.azure-pipelines.yml`)
    - `azureSubscription` — service connection name
    - `logicAppResourceId` — full resource id (Standard or Consumption)
-   - `armUrl` — (optional) prefixes source (default Azure Gov LogicApps.USGovTexas)
+   - `cloud` — pipeline runtime parameter: `Commercial` (default) or `Government`. Use a service connection configured for the selected cloud.
+   - `serviceTag` — pipeline runtime parameter; exact service tag name (default `LogicApps`, or a regional tag such as `LogicApps.EastUS`). For Government, for example, use `LogicApps.USGovTexas`. Select both parameters when running manually; edit their defaults for scheduled runs.
    - `apiVersion` — Standard web config API version (default 2021-02-01). Consumption auto-tries appropriate workflow versions.
    - `includeContentAccess` — set to `true` to also manage `contents.allowedCallerIpAddresses` (Consumption). Defaults to false.
 
@@ -50,14 +51,16 @@ Quick setup
    - Enable scheduled triggers if required
 
 How the script works (Standard)
-- Downloads/derives prefixes from the `armUrl` (multi-source + regex fallback)
+- Discovers the current JSON link on the selected Microsoft download page, saves it under `scripts/ServiceTags` using the published filename, and selects only the requested service tag's prefixes:
+  - [Commercial / Azure Public download](https://www.microsoft.com/en-us/download/details.aspx?id=56519): `ServiceTags_Public_*.json`
+  - [Azure Government download](https://www.microsoft.com/en-us/download/details.aspx?id=57063): `ServiceTags_AzureGovernment_*.json`
 - Fetches existing web config (az rest GET)
-- Preserves existing non-auto rules (names not matching auto prefix)
+- Preserves existing non-auto rules; replaces rules named `ServiceTag_*` and legacy `AzureGov_LogicApps_USGovTX_*` rules, including when changing the selected tag
 - Builds new allow rules with updated priorities
 - PUTs merged ipSecurityRestrictions
 
 How the script works (Consumption)
-- Downloads/derives prefixes (same robust flow)
+- Downloads and selects prefixes using the same service-tag flow; fails before updating Azure if the tag is missing or has no prefixes
 - Retrieves existing workflow (GET) unless `-SkipFetchExisting`
 - Constructs a full PUT body (PATCH not supported for workflow properties) adding / replacing `properties.accessControl`
 - Always updates `triggers.allowedCallerIpAddresses`; adds `contents.allowedCallerIpAddresses` only if `-IncludeContentAccess` (preferred) or legacy `-Target Content|Both`
@@ -72,7 +75,8 @@ Caveats & recommendations
 
 Key script parameters
 - `-LogicAppResourceId <id>`       Required
-- `-ArmUrl <url>`                  Optional
+- `-ServiceTag <name>`             Exact service tag name in the selected cloud (default `LogicApps`)
+- `-Cloud Commercial|Government`   Download feed and management endpoint (default `Commercial`)
 - `-ApiVersion <version>`          Standard config API version (default 2021-02-01)
 - `-Target Trigger|Content|Both`   Legacy selector (triggers always managed)
 - `-IncludeContentAccess`          Adds `contents` block (Consumption)
@@ -91,7 +95,8 @@ If desired, the script can be extended to emit an ARM template instead of perfor
 ### Prerequisites
 - PowerShell 7+ (`pwsh`) – Windows 10+ usually fine once PowerShell 7 is installed.
 - Azure CLI 2.50+ (recommend latest). Verify with: `az version`.
-- Network access to: `https://azureipranges.azurewebsites.net/` and Azure management endpoint.
+- Network access to `https://www.microsoft.com/`, `https://download.microsoft.com/`, and the Azure management endpoint.
+- Select `-Cloud Government` to use the Government feed and `https://management.usgovcloudapi.net`; Commercial uses `https://management.azure.com`. Authenticate Azure CLI (or the pipeline service connection) for the same cloud. The former `-ArmUrl` source override has been replaced by `-ServiceTag` and `-Cloud`.
 - Appropriate RBAC on the target resource:
    - Standard: `Microsoft.Web/sites/config/Write` (e.g. Site Contributor / Contributor on the site or resource group).
    - Consumption: `Microsoft.Logic/workflows/Write` (Logic App Contributor / Contributor scope on RG or workflow).
@@ -102,7 +107,7 @@ If desired, the script can be extended to emit an ARM template instead of perfor
     az login
     az account set --subscription <SUBSCRIPTION_ID>
     ```
-2. Interactive user (Azure Government) – if ever targeting Gov resources:
+2. Interactive user (Azure Government):
     ```powershell
     az cloud set --name AzureUSGovernment
     az login
@@ -152,22 +157,36 @@ Generate body without fetching existing (placeholder ID scenarios):
 pwsh ./scripts/patch-logicapp-access.ps1 -LogicAppResourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Logic/workflows/Placeholder" -WhatIf -SkipFetchExisting -IncludeContentAccess
 ```
 
-Override prefixes source URL:
+Select a regional service tag:
 ```powershell
-pwsh ./scripts/patch-logicapp-access.ps1 -LogicAppResourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Logic/workflows/TriggerTest" -ArmUrl "https://example/custom.json" -WhatIf
+pwsh ./scripts/patch-logicapp-access.ps1 -LogicAppResourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Logic/workflows/TriggerTest" -ServiceTag "LogicApps.EastUS" -WhatIf
+```
+
+Select Azure Government and a Government regional service tag:
+```powershell
+az cloud set --name AzureUSGovernment
+az login
+pwsh .\scripts\patch-logicapp-access.ps1 -LogicAppResourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Logic/workflows/TriggerTest" -Cloud Government -ServiceTag "LogicApps.USGovTexas" -WhatIf
 ```
 
 ### Idempotence Behavior
 If both trigger and (when selected) contents IP lists already match the resolved prefixes (set comparison), the script skips the PUT and prints existing counts.
 
 ### Troubleshooting
-- Empty prefix list: run with `-WhatIf -SkipFetchExisting` and inspect output; verify source URL manually.
+- Missing tag or empty prefix list: verify the exact tag name and its `properties.addressPrefixes` in the downloaded JSON. Wildcards are not supported; no other tags are used as a fallback.
 - 401 / 403 errors: ensure you logged in to correct subscription and have write permission.
 - Logic App not updating (Consumption): confirm there are no deployment locks and that the workflow is in Enabled state.
 - To view current access control after run:
    ```powershell
    az rest --method get --uri "https://management.azure.com/<resourceId>?api-version=2019-05-01" | ConvertFrom-Json | Select -Expand properties | Select -Expand accessControl
    ```
+   For Government, replace `https://management.azure.com` with `https://management.usgovcloudapi.net`.
+
+### Regression Tests
+With Pester available, run the download discovery and prefix-selection tests (network and Azure CLI calls are mocked):
+```powershell
+Invoke-Pester -Script .\scripts\tests\patch-logicapp-access.Tests.ps1
+```
 
 ### Optional Isolation
 Set a custom Azure CLI profile directory if you want to isolate credentials:

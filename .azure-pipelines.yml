@@ -1,6 +1,19 @@
 trigger: none
 pr: none
 
+parameters:
+- name: cloud
+  displayName: 'Azure cloud'
+  type: string
+  default: 'Commercial'
+  values:
+  - Commercial
+  - Government
+- name: serviceTag
+  displayName: 'Service tag (exact name in selected cloud)'
+  type: string
+  default: 'LogicApps'
+
 schedules:
 - cron: '0 3 * * *'         # nightly at 03:00 UTC
   displayName: Nightly - 03:00 UTC
@@ -14,8 +27,6 @@ variables:
     value: 'MyAzureServiceConnection'   # replace with your Azure service connection name in DevOps
   - name: logicAppResourceId
     value: '/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Web/sites/<logicAppName>'
-  - name: armUrl
-    value: 'https://azureipranges.azurewebsites.net/getPrefixes/AzureGovernment/LogicApps.USGovTexas'
   - name: apiVersion
     value: '2021-02-01'
   - name: includeContentAccess
@@ -38,9 +49,16 @@ steps:
       $ErrorActionPreference = 'Stop'
       Write-Host "Running access update script (idempotent)"
       $include = "$(includeContentAccess)"
-      $switch = ''
-      if ($include -and $include.ToLower() -eq 'true') { $switch = '-IncludeContentAccess' }
+      $scriptParams = @{
+        LogicAppResourceId = "$(logicAppResourceId)"
+        ServiceTag = $env:SERVICE_TAG
+        Cloud = $env:AZURE_CLOUD
+        ApiVersion = "$(apiVersion)"
+        IncludeContentAccess = ($include -and $include.ToLower() -eq 'true')
+      }
       # Execute (Consumption uses full PUT; Standard uses PUT web config)
-      ./scripts/patch-logicapp-access.ps1 -LogicAppResourceId "$(logicAppResourceId)" -ArmUrl "$(armUrl)" -ApiVersion "$(apiVersion)" $switch -SkipFetchExisting
+      .\scripts\patch-logicapp-access.ps1 @scriptParams
   env:
+    AZURE_CLOUD: ${{ parameters.cloud }}
+    SERVICE_TAG: ${{ parameters.serviceTag }}
     AZURE_HTTP_USER_AGENT: 'azure-pipelines-nightly-patch'
