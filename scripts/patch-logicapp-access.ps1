@@ -5,8 +5,14 @@ param(
   [ValidateNotNullOrEmpty()]
   [string] $ServiceTag = 'LogicApps',
 
+  # Cloud where the Logic App lives (management endpoint)
   [ValidateSet('Commercial','Government')]
   [string] $Cloud = 'Commercial',
+
+  # Cloud whose service tag feed supplies the IP ranges. Defaults to -Cloud; set it differently for mixed-cloud scenarios
+  # (e.g. a Commercial Logic App called by Power Automate flows in GCC => -Cloud Commercial -IpRangeCloud Government)
+  [ValidateSet('Commercial','Government')]
+  [string] $IpRangeCloud,
 
   [string] $ApiVersion = "2021-02-01",
 
@@ -29,14 +35,18 @@ if (-not $LogicAppResourceId) {
   throw "LogicAppResourceId is required. Example: /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Web/sites/<name> or /providers/Microsoft.Logic/workflows/<workflow>"
 }
 
+if (-not $IpRangeCloud) { $IpRangeCloud = $Cloud }
 $downloadPage = 'https://www.microsoft.com/en-us/download/details.aspx?id=56519'
 $filePattern = 'ServiceTags_Public_.*\.json'
 $managementEndpoint = 'https://management.azure.com'
-if ($Cloud -eq 'Government') {
+if ($IpRangeCloud -eq 'Government') {
   $downloadPage = 'https://www.microsoft.com/en-us/download/details.aspx?id=57063'
   $filePattern = 'ServiceTags_AzureGovernment_.*\.json'
+}
+if ($Cloud -eq 'Government') {
   $managementEndpoint = 'https://management.usgovcloudapi.net'
 }
+Write-Host "Logic App cloud: $Cloud; IP range source cloud: $IpRangeCloud"
 $downloadFolder = Join-Path $PSScriptRoot 'ServiceTags'
 if (-not (Test-Path -LiteralPath $downloadFolder -PathType Container)) {
   New-Item -Path $downloadFolder -ItemType Directory -ErrorAction Stop | Out-Null
@@ -48,7 +58,7 @@ $jsonUrl = $page.Links |
   Where-Object href -match $filePattern |
   Select-Object -First 1 -ExpandProperty href
 if (-not $jsonUrl) {
-  throw "No $Cloud service tags JSON download link found on $downloadPage."
+  throw "No $IpRangeCloud service tags JSON download link found on $downloadPage."
 }
 $downloadUri = [uri]::new([uri]$downloadPage, $jsonUrl)
 if ($downloadUri.Scheme -ne 'https') {
@@ -61,7 +71,7 @@ Write-Host "Downloaded $outFile"
 $resp = Get-Content -LiteralPath $outFile -Raw | ConvertFrom-Json -ErrorAction Stop
 $matchingTags = @($resp.values | Where-Object { $_.name -eq $ServiceTag })
 if ($matchingTags.Count -eq 0) {
-  throw "Service tag '$ServiceTag' was not found in $outFile. Specify an exact service tag name from the $Cloud cloud feed."
+  throw "Service tag '$ServiceTag' was not found in $outFile. Specify an exact service tag name from the $IpRangeCloud cloud feed."
 }
 $prefixes = @($matchingTags | ForEach-Object { $_.properties.addressPrefixes } |
   Where-Object { $_ } | Select-Object -Unique)

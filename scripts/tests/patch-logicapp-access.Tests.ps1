@@ -84,6 +84,15 @@ Describe 'Service tag access restrictions' {
     $body.properties.accessControl.triggers.allowedCallerIpAddresses[0].addressRange | Should Be '203.0.113.0/24'
   }
 
+  It 'supports a Commercial Logic App with Government IP ranges' {
+    $global:LogicAppAccessTestState.Link = 'https://download.microsoft.com/download/example/ServiceTags_AzureGovernment_20990108.json'
+    & $scriptPath @script:arguments -Cloud Commercial -IpRangeCloud Government -ServiceTag 'LogicApps.USGovTexas'
+    Assert-MockCalled Invoke-WebRequest -Times 1 -Exactly -ParameterFilter { "$Uri" -eq 'https://www.microsoft.com/en-us/download/details.aspx?id=57063' }
+    ($global:LogicAppAccessTestState.Messages -join "`n") | Should Match 'https://management.azure.com/'
+    $body = ($global:LogicAppAccessTestState.Messages | Where-Object { $_ -like 'WhatIf: PUT body*' }) -replace '^WhatIf: PUT body would be:\s*', '' | ConvertFrom-Json
+    $body.properties.accessControl.triggers.allowedCallerIpAddresses[0].addressRange | Should Be '203.0.113.0/24'
+  }
+
   It 'resolves relative download links' {
     $global:LogicAppAccessTestState.Link = '/download/ServiceTags_Public_20990115.json'
     & $scriptPath @script:arguments
