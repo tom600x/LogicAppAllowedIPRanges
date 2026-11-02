@@ -40,7 +40,8 @@ Quick setup
 3) Configure pipeline variables (in `.azure-pipelines.yml`)
    - `azureSubscription` — service connection name
    - `logicAppResourceId` — full resource id (Standard or Consumption)
-   - `cloud` — pipeline runtime parameter: `Commercial` (default) or `Government`. Use a service connection configured for the selected cloud.
+   - `cloud` — pipeline runtime parameter: cloud where the Logic App lives, `Commercial` (default) or `Government`. Use a service connection configured for this cloud.
+   - `ipRangeCloud` — pipeline runtime parameter: cloud whose service tag feed supplies the IP ranges, `Commercial` (default) or `Government`. Set it differently from `cloud` for mixed-cloud setups (e.g. a Commercial Logic App called by Power Automate flows in GCC: `cloud` = Commercial, `ipRangeCloud` = Government).
    - `serviceTag` — pipeline runtime parameter; exact service tag name (default `LogicApps`, or a regional tag such as `LogicApps.EastUS`). For Government, for example, use `LogicApps.USGovTexas`. Select both parameters when running manually; edit their defaults for scheduled runs.
    - `apiVersion` — Standard web config API version (default 2021-02-01). Consumption auto-tries appropriate workflow versions.
    - `includeContentAccess` — set to `true` to also manage `contents.allowedCallerIpAddresses` (Consumption). Defaults to false.
@@ -76,7 +77,8 @@ Caveats & recommendations
 Key script parameters
 - `-LogicAppResourceId <id>`       Required
 - `-ServiceTag <name>`             Exact service tag name in the selected cloud (default `LogicApps`)
-- `-Cloud Commercial|Government`   Download feed and management endpoint (default `Commercial`)
+- `-Cloud Commercial|Government`   Cloud of the Logic App; selects the management endpoint (default `Commercial`)
+- `-IpRangeCloud Commercial|Government`  Cloud of the service tag feed supplying the IP ranges (default: same as `-Cloud`)
 - `-ApiVersion <version>`          Standard config API version (default 2021-02-01)
 - `-Target Trigger|Content|Both`   Legacy selector (triggers always managed)
 - `-IncludeContentAccess`          Adds `contents` block (Consumption)
@@ -96,7 +98,7 @@ If desired, the script can be extended to emit an ARM template instead of perfor
 - PowerShell 7+ (`pwsh`) – Windows 10+ usually fine once PowerShell 7 is installed.
 - Azure CLI 2.50+ (recommend latest). Verify with: `az version`.
 - Network access to `https://www.microsoft.com/`, `https://download.microsoft.com/`, and the Azure management endpoint.
-- Select `-Cloud Government` to use the Government feed and `https://management.usgovcloudapi.net`; Commercial uses `https://management.azure.com`. Authenticate Azure CLI (or the pipeline service connection) for the same cloud. The former `-ArmUrl` source override has been replaced by `-ServiceTag` and `-Cloud`.
+- `-Cloud` selects the management endpoint (`https://management.usgovcloudapi.net` for Government, `https://management.azure.com` for Commercial); authenticate Azure CLI (or the pipeline service connection) for that cloud. `-IpRangeCloud` selects the service tag feed (Government or Commercial) and defaults to `-Cloud`. The former `-ArmUrl` source override has been replaced by `-ServiceTag` and `-Cloud`.
 - Appropriate RBAC on the target resource:
    - Standard: `Microsoft.Web/sites/config/Write` (e.g. Site Contributor / Contributor on the site or resource group).
    - Consumption: `Microsoft.Logic/workflows/Write` (Logic App Contributor / Contributor scope on RG or workflow).
@@ -168,6 +170,14 @@ az cloud set --name AzureUSGovernment
 az login
 pwsh .\scripts\patch-logicapp-access.ps1 -LogicAppResourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Logic/workflows/TriggerTest" -Cloud Government -ServiceTag "LogicApps.USGovTexas" -WhatIf
 ```
+
+Mixed cloud: a Commercial Logic App that must allow Government-cloud IP ranges (e.g. Power Automate flows in GCC):
+```powershell
+az cloud set --name AzureCloud
+az login
+pwsh ./scripts/patch-logicapp-access.ps1 -LogicAppResourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Logic/workflows/TriggerTest" -Cloud Commercial -IpRangeCloud Government -ServiceTag "LogicApps.USGovTexas" -WhatIf
+```
+Use the reverse (`-Cloud Government -IpRangeCloud Commercial`) for a Government Logic App allowing Commercial ranges. In the pipeline, set the `cloud` and `ipRangeCloud` parameters accordingly.
 
 ### Idempotence Behavior
 If both trigger and (when selected) contents IP lists already match the resolved prefixes (set comparison), the script skips the PUT and prints existing counts.

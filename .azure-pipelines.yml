@@ -3,14 +3,21 @@ pr: none
 
 parameters:
 - name: cloud
-  displayName: 'Azure cloud'
+  displayName: 'Cloud of the Logic App'
+  type: string
+  default: 'Commercial'
+  values:
+  - Commercial
+  - Government
+- name: ipRangeCloud
+  displayName: 'Cloud of the IP ranges (service tag feed)'
   type: string
   default: 'Commercial'
   values:
   - Commercial
   - Government
 - name: serviceTag
-  displayName: 'Service tag (exact name in selected cloud)'
+  displayName: 'Service tag (exact name in IP range cloud)'
   type: string
   default: 'LogicApps'
 
@@ -53,6 +60,7 @@ steps:
         LogicAppResourceId = "$(logicAppResourceId)"
         ServiceTag = $env:SERVICE_TAG
         Cloud = $env:AZURE_CLOUD
+        IpRangeCloud = $env:IP_RANGE_CLOUD
         ApiVersion = "$(apiVersion)"
         IncludeContentAccess = ($include -and $include.ToLower() -eq 'true')
       }
@@ -60,5 +68,6 @@ steps:
       .\scripts\patch-logicapp-access.ps1 @scriptParams
   env:
     AZURE_CLOUD: ${{ parameters.cloud }}
+    IP_RANGE_CLOUD: ${{ parameters.ipRangeCloud }}
     SERVICE_TAG: ${{ parameters.serviceTag }}
     AZURE_HTTP_USER_AGENT: 'azure-pipelines-nightly-patch'
